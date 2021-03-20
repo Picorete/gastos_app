@@ -2,7 +2,7 @@
 
 Simple application to control expenses using SQL Lite
 
-[Ver en la Play Store](https://play.google.com/store/apps/details?id=com.ricardougas.billetera)
+[Play Store](https://play.google.com/store/apps/details?id=com.ricardougas.billetera)
 ## Screenshots
 
 ![Screenshot_1613760331](https://user-images.githubusercontent.com/37616820/108548059-afe1d680-72c1-11eb-930a-79272b5feef5.png)
