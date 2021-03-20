@@ -1,6 +1,6 @@
-# Gastos App
+# Expenses App
 
-Aplicacion sencilla para control de gastos utilizando SQL Lite
+Simple application to control expenses using SQL Lite
 
 [Ver en la Play Store](https://play.google.com/store/apps/details?id=com.ricardougas.billetera)
 ## Screenshots
