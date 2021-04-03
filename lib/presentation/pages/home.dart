@@ -1,20 +1,22 @@
 import 'dart:async';
 
+import 'package:dartz/dartz_unsafe.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gastos_app/bloc/transactions.dart';
 
 import 'package:gastos_app/constants.dart';
-import 'package:gastos_app/models/transaction.dart';
-import 'package:gastos_app/providers/db.dart';
-import 'package:gastos_app/screens/add.dart';
-import 'package:gastos_app/widgets/header.dart';
-import 'package:gastos_app/widgets/nav-drawer.dart';
+import 'package:gastos_app/domain/entities/transaction.dart';
+import 'package:gastos_app/presentation/bloc/home/home_bloc.dart';
+import 'package:gastos_app/presentation/widgets/header.dart';
+import 'package:gastos_app/presentation/widgets/nav-drawer.dart';
 import 'package:intl/intl.dart';
-import '../extensions.dart';
 
 import 'package:rect_getter/rect_getter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../extensions.dart';
+import 'add.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -36,9 +38,26 @@ class FadeRouteBuilder<T> extends PageRouteBuilder<T> {
 String moneda;
 
 class _HomeScreenState extends State<HomeScreen> {
+  HomeBloc _homeBloc;
+  final ScrollController _monthScrollController = new ScrollController();
+  final List<GlobalKey> monthKeys = [
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+    new GlobalKey(),
+  ];
   void initState() {
     super.initState();
-    cargarMoneda();
+    _homeBloc = context.read<HomeBloc>();
+    _homeBloc.add(InitTransactions());
   }
 
   final Duration animationDuration = Duration(milliseconds: 300);
@@ -47,19 +66,10 @@ class _HomeScreenState extends State<HomeScreen> {
   GlobalKey rectGetterKey = RectGetter.createGlobalKey(); //<--Create a key
   Rect rect;
 
-  final transactionsBloc = new TransactionsBloc();
-  int monthActive = DateTime.now().month;
-  String activeCategory = 'todos';
-  bool onlyOnce = false;
   List<GlobalKey> monthsKeys = [];
   final GlobalKey<ScaffoldState> drawerKey = new GlobalKey<ScaffoldState>();
   @override
   Widget build(BuildContext context) {
-    transactionsBloc.getTransactions(monthActive);
-    transactionsBloc.getEntradasByMonth(monthActive, 1);
-    transactionsBloc.getEntradasByMonth(monthActive, 0);
-    transactionsBloc.getTotalByMonth(monthActive);
-
     WidgetsBinding.instance.addPostFrameCallback((_) => afterBuild(context));
     return Stack(
       children: [
@@ -70,36 +80,36 @@ class _HomeScreenState extends State<HomeScreen> {
             body: SingleChildScrollView(
               child: Column(
                 children: [
-                  Header(
-                      subHeading: 'BALANCE TOTAL',
-                      heading: StreamBuilder(
-                        stream: transactionsBloc.totalStream,
-                        builder: (BuildContext c, AsyncSnapshot snapshot) {
-                          if (!snapshot.hasData) {
-                            return CircularProgressIndicator();
-                          } else {
-                            return Text(
-                                '$moneda${snapshot.data.toStringAsFixed(2)}',
-                                style: kSubtitleTextSyule);
-                          }
-                        },
-                      ),
-                      rawButton: {
-                        'activated': true,
-                        'icon':
-                            Icon(Icons.menu, color: Colors.white, size: 20.0),
-                        'onPressed': () {
-                          drawerKey.currentState.openDrawer();
-                        },
-                        'tag': 'whateverTag'
-                      }),
-                  Container(
-                      padding: EdgeInsets.only(left: 5),
-                      child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: createMonthsChips(),
-                          ))),
+                  BlocBuilder<HomeBloc, HomeState>(
+                    builder: (context, state) {
+                      return Header(
+                          subHeading: 'BALANCE TOTAL',
+                          heading:
+                              Text('${state.currency}${state.totalAmount}'),
+                          rawButton: {
+                            'activated': true,
+                            'icon': Icon(Icons.menu,
+                                color: Colors.white, size: 20.0),
+                            'onPressed': () {
+                              drawerKey.currentState.openDrawer();
+                            },
+                            'tag': 'whateverTag'
+                          });
+                    },
+                  ),
+                  BlocBuilder<HomeBloc, HomeState>(
+                    builder: (context, state) {
+                      return Container(
+                          padding: EdgeInsets.only(left: 5),
+                          child: SingleChildScrollView(
+                            controller: _monthScrollController,
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: createMonthsChips(),
+                            ),
+                          ));
+                    },
+                  ),
                   Container(
                     alignment: Alignment(-1.0, 0.0),
                     padding: EdgeInsets.only(left: 5),
@@ -143,47 +153,32 @@ class _HomeScreenState extends State<HomeScreen> {
                             SizedBox(
                               width: 10.0,
                             ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Entradas', style: kTitleTextStyle),
-                                StreamBuilder(
-                                  stream: transactionsBloc.entradasStream,
-                                  builder:
-                                      (BuildContext c, AsyncSnapshot snapshot) {
-                                    if (!snapshot.hasData) {
-                                      return CircularProgressIndicator();
-                                    } else {
-                                      return Text(
-                                          '$moneda${snapshot.data.toStringAsFixed(2)}',
-                                          style: kSubtitleTextSyule);
-                                    }
-                                  },
-                                )
-                              ],
+                            BlocBuilder<HomeBloc, HomeState>(
+                              builder: (context, state) {
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Entradas', style: kTitleTextStyle),
+                                    Text('${state.currency}${state.totalInput}')
+                                  ],
+                                );
+                              },
                             )
                           ],
                         ),
                         Row(
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Salidas', style: kTitleTextStyle),
-                                StreamBuilder(
-                                  stream: transactionsBloc.salidasStream,
-                                  builder:
-                                      (BuildContext c, AsyncSnapshot snapshot) {
-                                    if (!snapshot.hasData) {
-                                      return CircularProgressIndicator();
-                                    } else {
-                                      return Text(
-                                          '$moneda${snapshot.data.toStringAsFixed(2)}',
-                                          style: kSubtitleTextSyule);
-                                    }
-                                  },
-                                )
-                              ],
+                            BlocBuilder<HomeBloc, HomeState>(
+                              builder: (context, state) {
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Salidas', style: kTitleTextStyle),
+                                    Text(
+                                        '${state.currency}${state.totalOutput}')
+                                  ],
+                                );
+                              },
                             ),
                             SizedBox(
                               width: 10.0,
@@ -208,25 +203,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: EdgeInsets.only(left: 5.0),
                     alignment: Alignment.centerLeft,
-                    child: StreamBuilder(
-                      stream: transactionsBloc.categoriesStream,
-                      builder:
-                          (BuildContext context, AsyncSnapshot<List> snapshot) {
-                        if (!snapshot.hasData) {
+                    child: BlocBuilder<HomeBloc, HomeState>(
+                      builder: (BuildContext context, state) {
+                        if (state.transactions.length == 0) {
                           return Container();
                         }
 
-                        List<Widget> list = new List<Widget>();
+                        List<Widget> list = <Widget>[];
                         list.add(Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 2.0),
                           child: RaisedButton(
                             onPressed: () {
-                              transactionsBloc.getTransactions(monthActive);
-                              activeCategory = 'todos';
-                              setState(() {});
+                              _homeBloc.add(OnGetTransactions(state.activeMonth,
+                                  category: 'todos'));
                             },
                             child: Text('Todos'),
-                            color: (activeCategory == 'todos')
+                            color: (state.activeCategory == 'todos')
                                 ? secondary
                                 : primary,
                             textColor: Colors.white,
@@ -234,21 +226,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                 borderRadius: BorderRadius.circular(20.0)),
                           ),
                         ));
-                        snapshot.data.forEach((element) {
+                        state.categories.forEach((element) {
                           list.add(Padding(
                             padding:
                                 const EdgeInsets.symmetric(horizontal: 2.0),
                             child: RaisedButton(
                               onPressed: () {
-                                transactionsBloc.getTransactionsByCategory(
-                                    monthActive,
-                                    element['category'].toString());
-                                activeCategory = element['category'].toString();
-                                setState(() {});
+                                _homeBloc.add(OnGetTransactions(
+                                    state.activeMonth,
+                                    category: element));
                               },
-                              child: Text(element['category'].toString()),
-                              color: (activeCategory ==
-                                      element['category'].toString())
+                              child: Text(element),
+                              color: (state.activeCategory == element)
                                   ? secondary
                                   : primary,
                               textColor: Colors.white,
@@ -268,47 +257,31 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 20.0),
-                    child: StreamBuilder(
-                        stream: transactionsBloc.transactionStream,
-                        builder: (BuildContext context,
-                            AsyncSnapshot<List<TransactionModel>> snapshot) {
-                          if (!snapshot.hasData) {
-                            return Center(child: CircularProgressIndicator());
-                          }
+                    child: BlocBuilder<HomeBloc, HomeState>(
+                        builder: (BuildContext context, state) {
+                      if (state.busy)
+                        return Center(child: CircularProgressIndicator());
+                      if (state.transactions.length == 0)
+                        return Center(
+                          child: Text('No hay informacion'),
+                        );
 
-                          final transactions = snapshot.data;
+                      final transactions = state.transactions;
+                      List<Widget> list = <Widget>[];
 
-                          if (transactions.length == 0) {
-                            return Center(
-                              child: Text('No hay informacion'),
-                            );
-                          }
-                          List<Widget> list = new List<Widget>();
+                      transactions.forEach((element) {
+                        list.add(createTransaction(element));
+                      });
 
-                          transactions.forEach((element) {
-                            DateTime date = DateFormat("yyyy-MM-dd hh:mm:ss")
-                                .parse(element.date);
+                      list.add(SizedBox(
+                        height: 50.0,
+                        width: double.infinity,
+                      ));
 
-                            list.add(createTransaction(
-                                id: element.id,
-                                description: element.description,
-                                amount: element.amount.toString(),
-                                date: DateFormat("EEEE dd LLLL")
-                                    .format(date)
-                                    .capitalize(),
-                                categorie: element.category,
-                                type: element.type));
-                          });
-
-                          list.add(SizedBox(
-                            height: 50.0,
-                            width: double.infinity,
-                          ));
-
-                          return Column(
-                            children: list,
-                          );
-                        }),
+                      return Column(
+                        children: list,
+                      );
+                    }),
                   ),
                 ],
               ),
@@ -348,16 +321,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget createChip(String month, int monthInt, bool active) {
-    final key = GlobalKey();
-    monthsKeys.add(key);
     return Padding(
-      key: key,
+      key: monthKeys[monthInt - 1],
       padding: const EdgeInsets.symmetric(horizontal: 2.0),
       child: RaisedButton(
         onPressed: () {
-          monthActive = monthInt;
-
-          setState(() {});
+          BlocProvider.of<HomeBloc>(context).add(OnGetTransactions(monthInt));
         },
         child: Text(month),
         color: !active ? primary : secondary,
@@ -387,19 +356,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final List<Widget> monthsChips = months.map((e) {
       int index = months.indexOf(e);
       index = index + 1;
-      return createChip(e, index, (index == monthActive) ? true : false);
+      return createChip(
+          e,
+          index,
+          (index == BlocProvider.of<HomeBloc>(context).state.activeMonth)
+              ? true
+              : false);
     }).toList();
 
     return monthsChips;
   }
 
-  Widget createTransaction(
-      {int id,
-      String description,
-      String date,
-      bool type,
-      String amount,
-      String categorie}) {
+  Widget createTransaction(Transaction transaction) {
+    DateTime dateParsed =
+        DateFormat("yyyy-MM-dd hh:mm:ss").parse(transaction.date);
+    final dateString =
+        DateFormat("EEEE dd LLLL").format(dateParsed).capitalize();
     return Dismissible(
       key: UniqueKey(),
       confirmDismiss: (DismissDirection direction) async {
@@ -411,11 +383,14 @@ class _HomeScreenState extends State<HomeScreen> {
               content:
                   const Text("¿Seguro que deseas eliminar esta transaccion?"),
               actions: <Widget>[
-                FlatButton(
-                    onPressed: () => Navigator.of(context).pop(true),
+                TextButton(
+                    onPressed: () {
+                      _homeBloc.add(OnDeleteTransaction(transaction));
+                      Navigator.of(context).pop();
+                    },
                     child: const Text("ELIMINAR")),
-                FlatButton(
-                  onPressed: () => Navigator.of(context).pop(false),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
                   child: const Text("CANCELAR"),
                 ),
               ],
@@ -423,13 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         );
       },
-      onDismissed: (direction) {
-        transactionsBloc.deleteTransactionByID(id);
-        transactionsBloc.getTransactions(monthActive);
-        transactionsBloc.getEntradasByMonth(monthActive, 1);
-        transactionsBloc.getEntradasByMonth(monthActive, 0);
-        transactionsBloc.getTotalByMonth(monthActive);
-      },
+      onDismissed: (direction) {},
       child: Container(
         padding: EdgeInsets.only(bottom: 10.0),
         decoration: BoxDecoration(
@@ -441,19 +410,23 @@ class _HomeScreenState extends State<HomeScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(description, style: kTitleTextStyle),
-                Text(date, style: kSubtitleTextSyule)
+                Text(transaction.description, style: kTitleTextStyle),
+                Text(dateString, style: kSubtitleTextSyule)
               ],
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(type ? "+$moneda$amount" : "- $moneda$amount",
-                    style: type
-                        ? kTitleTextStylePrimary
-                        : kSubtitleTextSytleScondary),
-                Text(categorie, style: kSubtitleTextSyule)
-              ],
+            BlocBuilder<HomeBloc, HomeState>(
+              builder: (context, state) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text("${state.currency}${transaction.amount}",
+                        style: transaction.type
+                            ? kTitleTextStylePrimary
+                            : kSubtitleTextSytleScondary),
+                    Text(transaction.category, style: kSubtitleTextSyule)
+                  ],
+                );
+              },
             )
           ],
         ),
@@ -488,18 +461,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void afterBuild(context) {
-    if (!onlyOnce) {
-      Scrollable.ensureVisible(monthsKeys[monthActive - 1].currentContext);
-      onlyOnce = true;
+    var jumpTo = 0.0;
+    for (var i = 0; i < DateTime.now().month - 1; i++) {
+      final monthChip =
+          monthKeys[i].currentContext.findRenderObject() as RenderBox;
+      jumpTo += monthChip.size.width;
     }
-  }
-
-  void cargarMoneda() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    moneda = prefs.getString('moneda');
-    if (moneda == null) {
-      moneda = '\$';
-    }
-    setState(() {});
+    _monthScrollController.jumpTo(jumpTo);
   }
 }

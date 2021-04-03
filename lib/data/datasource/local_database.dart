@@ -1,18 +1,23 @@
-import 'package:gastos_app/models/transaction.dart';
-import 'package:observable_ish/value/value.dart';
-import 'package:sqflite/sqflite.dart';
+import 'dart:async';
+
+import 'package:dartz/dartz.dart';
+import 'package:gastos_app/core/errors/exceptions.dart';
+import 'package:gastos_app/data/models/transaction_model.dart';
+import 'package:gastos_app/domain/entities/transaction.dart';
+import 'package:gastos_app/domain/entities/transactionsObject.dart';
+import 'package:sqflite/sqflite.dart' as sql;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:path/path.dart';
 
 class DatabaseService {
-  static Database _database;
+  static sql.Database _database;
   static final DatabaseService db = DatabaseService();
   final date = DateTime.now();
 
   DatabaseService();
 
-  Future<Database> get database async {
+  Future<sql.Database> get database async {
     if (_database != null) return _database;
 
     _database = await initDB();
@@ -20,17 +25,13 @@ class DatabaseService {
     return _database;
   }
 
-  RxValue<List<TransactionModel>> _transacciones =
-      RxValue<List<TransactionModel>>(initial: []);
-  List<TransactionModel> get transacciones => _transacciones.value;
-
   initDB() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
 
     final path = join(documentsDirectory.path, 'MoneyMS.db');
 
-    return await openDatabase(path, version: 1, onOpen: (db) {},
-        onCreate: (Database db, int version) async {
+    return await sql.openDatabase(path, version: 1, onOpen: (db) {},
+        onCreate: (sql.Database db, int version) async {
       await db.execute('CREATE TABLE Transactions ('
           ' id INTEGER PRIMARY KEY,'
           ' description TEXT,'
@@ -43,13 +44,17 @@ class DatabaseService {
   }
 
   // Insert
-  insertTransaction(TransactionModel transaction) async {
+  Future<Either<Failure, bool>> insertTransaction(
+      Transaction transaction) async {
     final db = await database;
 
     final res = await db.insert('Transactions', transaction.toJson());
 
-    _transacciones.value.insert(0, transaction);
-    return res;
+    if (res is int) {
+      return Right(true);
+    } else {
+      return Left(new ServerFail('No se a podido guardar la transaction'));
+    }
   }
 
   // Get
@@ -63,13 +68,12 @@ class DatabaseService {
   }
 
   // Delete
-  Future<int> deleteById(int id) async {
+  Future<bool> deleteById(int id) async {
     final db = await database;
 
-    final res =
-        await db.delete('Transactions', where: 'id = ?', whereArgs: [id]);
+    await db.delete('Transactions', where: 'id = ?', whereArgs: [id]);
 
-    return res;
+    return true;
   }
 
   Future<List<TransactionModel>> getAllT() async {
@@ -84,45 +88,32 @@ class DatabaseService {
   }
 
   // Get incomes by month
-  Future<List<TransactionModel>> getAllByMonth({month: int}) async {
-    (month < 10) ? month = "0$month" : month = month;
+  Future<Either<Failure, TransactionsObject>> getAllByMonth(int month,
+      {String category}) async {
+    var monthString;
+    (month < 10) ? monthString = "0$month" : monthString = month;
 
     final db = await database;
-    final res = await db.query('Transactions',
-        where: "strftime('%m', date) = ?",
-        whereArgs: ['$month'],
-        orderBy: 'date DESC');
+    List<TransactionModel> list;
+    if (category != null) {
+      list = await this.getAllByMonthAndCategory(month, category);
+    } else {
+      final res = await db.query('Transactions',
+          where: "strftime('%m', date) = ?",
+          whereArgs: ['$monthString'],
+          orderBy: 'date DESC');
+      list = res.isNotEmpty
+          ? res.map((t) => TransactionModel.fromJson(t)).toList()
+          : [];
+    }
 
-    List<TransactionModel> list = res.isNotEmpty
-        ? res.map((t) => TransactionModel.fromJson(t)).toList()
-        : [];
-
-    _transacciones.value = list;
-    return list;
-  }
-
-  // Get incomes per type
-  Future<double> getEntradasByMonth({month: int, type = 0}) async {
-    (month < 10) ? month = "0$month" : month = month;
-
-    final db = await database;
-    final res = await db.rawQuery(
-        "SELECT SUM(amount) FROM Transactions WHERE strftime('%m', date) = '$month' AND type = $type");
-
-    return (res.first["SUM(amount)"] == null) ? 0.0 : res.first["SUM(amount)"];
-  }
-
-  // Get total amount of incomes
-  Future<double> getTotalByMonth({month}) async {
-    (month < 10) ? month = "0$month" : month = month;
     double entradasDbl;
     double salidasDbl;
 
-    final db = await database;
     final entradas = await db.rawQuery(
-        "SELECT SUM(amount) FROM Transactions WHERE strftime('%m', date) = '$month' AND type = 1");
+        "SELECT SUM(amount) FROM Transactions WHERE strftime('%m', date) = '$monthString' AND type = 1");
     final salidas = await db.rawQuery(
-        "SELECT SUM(amount) FROM Transactions WHERE strftime('%m', date) = '$month' AND type = 0");
+        "SELECT SUM(amount) FROM Transactions WHERE strftime('%m', date) = '$monthString' AND type = 0");
 
     if (entradas.first["SUM(amount)"] == null) {
       entradasDbl = 0.0;
@@ -137,11 +128,26 @@ class DatabaseService {
 
     double salidaTotal = entradasDbl - salidasDbl;
 
-    return salidaTotal;
+    return Right(new TransactionsObject(
+        transactions: list,
+        totalAmount: salidaTotal,
+        input: entradasDbl,
+        output: salidasDbl));
+  }
+
+  // Get incomes per type
+  Future<double> getEntradasByMonth({month: int, type = 0}) async {
+    (month < 10) ? month = "0$month" : month = month;
+
+    final db = await database;
+    final res = await db.rawQuery(
+        "SELECT SUM(amount) FROM Transactions WHERE strftime('%m', date) = '$month' AND type = $type");
+
+    return (res.first["SUM(amount)"] == null) ? 0.0 : res.first["SUM(amount)"];
   }
 
   // Get DISTINCT of categories
-  Future<List> getCategories(month) async {
+  Future<Either<Failure, List<String>>> getCategories(month) async {
     (month < 10) ? month = "0$month" : month = month;
 
     final db = await database;
@@ -149,11 +155,11 @@ class DatabaseService {
     final res = await db.rawQuery(
         "SELECT DISTINCT(category) FROM Transactions WHERE strftime('%m', date) = '$month'");
 
-    return res;
+    return Right(res.map((e) => e['category'] as String).toList());
   }
 
   // Get transactions by categorie
-  Future<List<TransactionModel>> getAllByMonthAndCategory(month, cat) async {
+  Future<List<Transaction>> getAllByMonthAndCategory(month, cat) async {
     (month < 10) ? month = "0$month" : month = month;
 
     final db = await database;

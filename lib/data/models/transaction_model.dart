@@ -1,19 +1,21 @@
-class TransactionModel {
-  TransactionModel({
-    this.id,
-    this.description,
-    this.amount,
-    this.category,
-    this.type,
-    this.date,
-  });
+import 'package:flutter/cupertino.dart';
+import 'package:gastos_app/domain/entities/transaction.dart';
 
-  int id;
-  String description;
-  double amount;
-  String category;
-  bool type;
-  String date;
+class TransactionModel extends Transaction {
+  TransactionModel({
+    @required int id,
+    @required String description,
+    @required double amount,
+    @required String category,
+    @required bool type,
+    @required String date,
+  }) : super(
+            id: id,
+            description: description,
+            amount: amount,
+            category: category,
+            type: type,
+            date: date);
 
   factory TransactionModel.fromJson(Map<String, dynamic> json) =>
       TransactionModel(
